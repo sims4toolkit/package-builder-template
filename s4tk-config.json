@@ -1,0 +1,18 @@
+{
+  "buildName": "MyProject",
+  "buildFolders": [
+    "./out"
+  ],
+  "sourceFolder": "./src",
+  "sourcePatterns": {
+    "packages": [
+      "./packages/**/*.package"
+    ],
+    "simdata": [
+      "./xml/**/*.SimData.xml"
+    ],
+    "tuning": [
+      "./xml/**/!(*.SimData).xml"
+    ]
+  }
+}
