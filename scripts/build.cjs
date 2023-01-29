@@ -13,47 +13,17 @@ const {
 const CONFIG_DIR = path.resolve(__dirname, "..");
 const CONFIG = require("../s4tk-config.json");
 
-//#endregion
-
-//#region Cache
-
-const CACHE_DIR = path.resolve(CONFIG_DIR, CONFIG.cacheFolder);
-const CACHE_PATH = path.join(CACHE_DIR, "cache.json");
-
-/** Map of filepaths (strings) to keys (objects w/ type, group, instance). */
-const PATH_TO_KEY_CACHE = new Map();
-
-/** Map of tuning names (strings) to filepaths (strings). */
-const NAME_TO_PATH_CACHE = new Map();
-
-/** Set of filepaths (strings) that exist, so unseen ones can be deleted. */
-const SEEN_PATHS = new Set();
-
-// Load existing cache, if there is any
-try {
-  if (fs.existsSync(CACHE_PATH)) {
-    // Cache = { keys: { filepath: string; tuningName: string; key: ResourceKey; }[]; }
-    // ResourceKey = { type: number; group: number; instance: string; }
-    const cache = JSON.parse(fs.readFileSync(CACHE_PATH).toString());
-
-    cache.keys.forEach(({ filepath, tuningName, key }) => {
-      key.instance = BigInt(key.instance);
-      PATH_TO_KEY_CACHE.set(filepath, key);
-      NAME_TO_PATH_CACHE.set(tuningName, filepath);
-    });
-
-    console.log(`Using cache: ${CACHE_PATH}`);
-  } else {
-    console.log("No cache found. Keys will be generated from XML.");
-  }
-} catch (err) {
-  console.error("Error reading cache:", err);
-  console.log("Keys will be generated from XML.");
+if (CONFIG.buildFolders.length === 0) {
+  throw "Build script cannot run without at least one folder listed in 'buildFolders'.";
 }
 
 //#endregion
 
-//#region Helpers
+//#region Globals & Helpers
+
+const TUNING_INSTANCES = new Set();
+const TUNING_NAMES_TO_KEYS = new Map();
+const TUNING_PATHS = new Set();
 
 function getSourceFilePaths(patterns) {
   return patterns
@@ -63,14 +33,46 @@ function getSourceFilePaths(patterns) {
     .flat(1);
 }
 
-function getTuningKey(filepath, resource) {
-  if (PATH_TO_KEY_CACHE.has(filepath)) return PATH_TO_KEY_CACHE.get(filepath);
-  // TODO:
+function parseTuningKey(filepath, tuning) {
+  const filename = tuning.root.name;
+  if (TUNING_NAMES_TO_KEYS.has(filename))
+    throw new Error(`More than one file has n="${filename}"`);
+
+  const { i, s } = tuning.root.attributes;
+
+  const type = TuningResourceType.parseAttr(i);
+  if (!type) throw new Error(`Could not parse i="${i}" as a type`);
+
+  const instance = BigInt(s);
+  if (TUNING_INSTANCES.has(instance))
+    throw new Error(`More than one file has s="${instance}"`);
+
+  const groupMatch = /G([0-9A-Fa-f]{8})\.xml$/.exec(filepath);
+  const group = groupMatch ? parseInt(groupMatch[1], 16) : 0;
+
+  const key = { type, group, instance };
+  TUNING_NAMES_TO_KEYS.set(filename, key);
+  TUNING_INSTANCES.add(instance);
+  return key;
 }
 
-function getSimDataKey(filepath, resource) {
-  if (PATH_TO_KEY_CACHE.has(filepath)) return PATH_TO_KEY_CACHE.get(filepath);
-  // TODO:
+function parseSimDataKey(filepath, simdata) {
+  const name = simdata.instance.name;
+  const tuningKey = TUNING_NAMES_TO_KEYS.get(name);
+
+  if (!tuningKey) throw new Error(`SimData '${name}' does not have tuning`);
+
+  const group = SimDataGroup.getForTuning(tuningKey.type);
+  if (!group) {
+    const typeName = TuningResourceType[tuningKey.type];
+    throw new Error(`SimDataGroup.${typeName} is not defined`);
+  }
+
+  return {
+    type: BinaryResourceType.SimData,
+    group: group,
+    instance: tuningKey.instance,
+  };
 }
 
 //#endregion
@@ -81,33 +83,45 @@ const buildPkg = new Package();
 
 // parsing tuning files
 getSourceFilePaths(CONFIG.sourcePatterns.tuning).forEach((filepath) => {
-  try {
-    const { key, resource } = createTuningEntry(filepath);
-    buildPkg.add(key, resource);
-  } catch (err) {
-    // TODO:
-  }
+  TUNING_PATHS.add(filepath);
 
-  SEEN_PATHS.add(filepath);
+  try {
+    const buffer = fs.readFileSync(filepath);
+    const tuning = XmlResource.from(buffer);
+    const key = parseTuningKey(filepath, tuning);
+    buildPkg.add(key, tuning);
+  } catch (err) {
+    console.error(`Error ocurred while building ${filepath}`);
+    if (CONFIG.cancelOnError) {
+      throw err;
+    } else {
+      console.error(err);
+    }
+  }
 });
 
 console.log("Tuning built successfully");
 
 // parsing simdata files
 getSourceFilePaths(CONFIG.sourcePatterns.simdata).forEach((filepath) => {
-  if (SEEN_PATHS.has(filepath)) {
+  if (TUNING_PATHS.has(filepath))
     throw new Error(
-      `File path '${filepath}' appears in both tuning and SimData glob lists. The patterns set in s4tk-config.json are probably incorrect.`
+      `'${filepath}' is listed as both tuning and SimData (sourcePatterns is likely configured incorrectly)`
     );
-  }
 
   try {
-    // TODO:
+    const buffer = fs.readFileSync(filepath);
+    const simdata = SimDataResource.fromXml(buffer);
+    const key = parseSimDataKey(filepath, simdata);
+    buildPkg.add(key, simdata);
   } catch (err) {
-    // TODO:
+    console.error(`Error ocurred while building ${filepath}`);
+    if (CONFIG.cancelOnError) {
+      throw err;
+    } else {
+      console.error(err);
+    }
   }
-
-  SEEN_PATHS.add(filepath);
 });
 
 console.log("SimData built successfully");
@@ -129,12 +143,6 @@ const packageName = `${CONFIG.buildName}.package`;
 const packageBuffer = buildPkg.getBuffer();
 console.log(`Package built successfully: ${packageName}`);
 
-if (CONFIG.buildFolders.length === 0) {
-  throw new Error(
-    `Your package cannot be written without at least one folder listed in 'buildFolders'.`
-  );
-}
-
 CONFIG.buildFolders.forEach((folder) => {
   if (!path.isAbsolute(folder)) folder = path.resolve(CONFIG_DIR, folder);
 
@@ -147,38 +155,6 @@ CONFIG.buildFolders.forEach((folder) => {
   fs.writeFileSync(filepath, packageBuffer);
   console.log(`Wrote package: ${filepath}`);
 });
-
-//#endregion
-
-//#region Saving the Cache
-
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR);
-  console.log(`Created cache folder: ${CACHE_DIR}`);
-}
-
-try {
-  const newKeysCache = [];
-
-  NAME_TO_PATH_CACHE.forEach((filepath, tuningName) => {
-    if (SEEN_PATHS.has(filepath)) {
-      const key = PATH_TO_KEY_CACHE.get(filepath);
-      newKeysCache.push({ filepath, tuningName, key });
-    }
-  });
-
-  fs.writeFileSync(
-    CACHE_PATH,
-    JSON.stringify({ keys: newKeysCache }, (_, value) =>
-      // bigints must become strings or else they'll lose precision
-      typeof value === "bigint" ? value.toString() : value
-    )
-  );
-
-  console.log(`Saved cached: ${CACHE_PATH}`);
-} catch (err) {
-  console.error(`Failed to save cache: ${err}`);
-}
 
 //#endregion
 
