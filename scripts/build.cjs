@@ -67,8 +67,13 @@ function parseTuningKey(filepath, tuning) {
 
   const { i, s } = tuning.root.attributes;
 
-  const type = TuningResourceType.parseAttr(i);
-  if (!type) throw `Could not parse i="${i}" as a type`;
+  if (tuning.root.tag === "M") {
+    var type = TuningResourceType.Tuning;
+  } else {
+    var type = TuningResourceType.parseAttr(i);
+    if (!type || type === TuningResourceType.Tuning)
+      throw `Could not parse i="${i}" as a non-generic type`;
+  }
 
   const instance = BigInt(s);
   if (TUNING_INSTANCES.has(instance))
