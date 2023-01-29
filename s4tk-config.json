@@ -3,6 +3,7 @@
     "./out"
   ],
   "buildName": "MyProject",
+  "cache": true,
   "cachePath": "./s4tk-cache.json",
   "cancelOnError": true,
   "sourceFolder": "./src",
