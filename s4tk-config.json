@@ -1,9 +1,9 @@
 {
-  "buildName": "MyProject",
   "buildFolders": [
     "./out"
   ],
-  "cacheFolder": "./cache",
+  "buildName": "MyProject",
+  "cancelOnError": true,
   "sourceFolder": "./src",
   "sourcePatterns": {
     "packages": [
