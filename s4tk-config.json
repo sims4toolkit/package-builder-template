@@ -3,6 +3,7 @@
   "buildFolders": [
     "./out"
   ],
+  "cacheFolder": "./cache",
   "sourceFolder": "./src",
   "sourcePatterns": {
     "packages": [
