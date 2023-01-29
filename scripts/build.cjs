@@ -19,11 +19,33 @@ if (CONFIG.buildFolders.length === 0) {
 
 //#endregion
 
+//#region Cacheing
+
+const CACHE_PATH = path.resolve(CONFIG_DIR, CONFIG.cachePath);
+const PATHS_TO_KEYS = new Map();
+const SEEN_PATHS = new Set();
+
+// load existing cache, if available
+try {
+  const cache = JSON.parse(fs.readFileSync(CACHE_PATH).toString());
+  cache.keys.forEach(({ filepath, key }) => {
+    const [t, g, i] = key.split("_");
+    PATHS_TO_KEYS.set(filepath, {
+      type: parseInt(t),
+      group: parseInt(g),
+      instance: BigInt(i),
+    });
+  });
+} catch (err) {
+  // intentionally blank
+}
+
+//#endregion
+
 //#region Globals & Helpers
 
 const TUNING_INSTANCES = new Set();
 const TUNING_NAMES_TO_KEYS = new Map();
-const TUNING_PATHS = new Set();
 
 function getSourceFilePaths(patterns) {
   return patterns
@@ -34,6 +56,8 @@ function getSourceFilePaths(patterns) {
 }
 
 function parseTuningKey(filepath, tuning) {
+  if (PATHS_TO_KEYS.has(filepath)) return PATHS_TO_KEYS.get(filepath);
+
   const filename = tuning.root.name;
   if (TUNING_NAMES_TO_KEYS.has(filename))
     throw `More than one file has n="${filename}"`;
@@ -51,12 +75,16 @@ function parseTuningKey(filepath, tuning) {
   const group = groupMatch ? parseInt(groupMatch[1], 16) : 0;
 
   const key = { type, group, instance };
+  PATHS_TO_KEYS.set(filepath, key);
+  SEEN_PATHS.add(filepath);
   TUNING_NAMES_TO_KEYS.set(filename, key);
   TUNING_INSTANCES.add(instance);
   return key;
 }
 
 function parseSimDataKey(filepath, simdata) {
+  if (PATHS_TO_KEYS.has(filepath)) return PATHS_TO_KEYS.get(filepath);
+
   const name = simdata.instance.name;
   const tuningKey = TUNING_NAMES_TO_KEYS.get(name);
 
@@ -68,11 +96,15 @@ function parseSimDataKey(filepath, simdata) {
     throw `SimDataGroup.${typeName} is not defined`;
   }
 
-  return {
+  const key = {
     type: BinaryResourceType.SimData,
     group: group,
     instance: tuningKey.instance,
   };
+
+  PATHS_TO_KEYS.set(filepath, key);
+  SEEN_PATHS.add(filepath);
+  return key;
 }
 
 //#endregion
@@ -83,8 +115,6 @@ const buildPkg = new Package();
 
 // parsing tuning files
 getSourceFilePaths(CONFIG.sourcePatterns.tuning).forEach((filepath) => {
-  TUNING_PATHS.add(filepath);
-
   try {
     const buffer = fs.readFileSync(filepath);
     const tuning = XmlResource.from(buffer);
@@ -104,9 +134,6 @@ console.log("Tuning built successfully");
 
 // parsing simdata files
 getSourceFilePaths(CONFIG.sourcePatterns.simdata).forEach((filepath) => {
-  if (TUNING_PATHS.has(filepath))
-    throw `'${filepath}' is listed as both tuning and SimData (sourcePatterns is likely configured incorrectly)`;
-
   try {
     const buffer = fs.readFileSync(filepath);
     const simdata = SimDataResource.fromXml(buffer);
@@ -153,6 +180,29 @@ CONFIG.buildFolders.forEach((folder) => {
   fs.writeFileSync(filepath, packageBuffer);
   console.log(`Wrote package: ${filepath}`);
 });
+
+//#endregion
+
+//#region Writing the Cache
+
+try {
+  const keys = [];
+
+  PATHS_TO_KEYS.forEach((key, filepath) => {
+    if (SEEN_PATHS.has(filepath)) {
+      keys.push({
+        filepath,
+        key: `${key.type}_${key.group}_${key.instance}`,
+      });
+    }
+  });
+
+  fs.writeFileSync(CACHE_PATH, JSON.stringify({ keys }));
+
+  console.log(`Saved cached: ${CACHE_PATH}`);
+} catch (err) {
+  console.error(`Failed to save cache: ${err}`);
+}
 
 //#endregion
 

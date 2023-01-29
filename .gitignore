@@ -1,6 +1,6 @@
 node_modules/
 out/
-cache/
+s4tk-cache.json
 
 # macOS
 .DS_Store
