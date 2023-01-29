@@ -1,0 +1,10 @@
+{
+  "name": "your-project-name",
+  "scripts": {
+    "build": "node scripts/build.cjs"
+  },
+  "dependencies": {
+    "@s4tk/models": "^0.6.5",
+    "glob": "^8.1.0"
+  }
+}
