@@ -36,16 +36,16 @@ function getSourceFilePaths(patterns) {
 function parseTuningKey(filepath, tuning) {
   const filename = tuning.root.name;
   if (TUNING_NAMES_TO_KEYS.has(filename))
-    throw new Error(`More than one file has n="${filename}"`);
+    throw `More than one file has n="${filename}"`;
 
   const { i, s } = tuning.root.attributes;
 
   const type = TuningResourceType.parseAttr(i);
-  if (!type) throw new Error(`Could not parse i="${i}" as a type`);
+  if (!type) throw `Could not parse i="${i}" as a type`;
 
   const instance = BigInt(s);
   if (TUNING_INSTANCES.has(instance))
-    throw new Error(`More than one file has s="${instance}"`);
+    throw `More than one file has s="${instance}"`;
 
   const groupMatch = /G([0-9A-Fa-f]{8})\.xml$/.exec(filepath);
   const group = groupMatch ? parseInt(groupMatch[1], 16) : 0;
@@ -60,12 +60,12 @@ function parseSimDataKey(filepath, simdata) {
   const name = simdata.instance.name;
   const tuningKey = TUNING_NAMES_TO_KEYS.get(name);
 
-  if (!tuningKey) throw new Error(`SimData '${name}' does not have tuning`);
+  if (!tuningKey) throw `SimData '${name}' does not have matching tuning`;
 
   const group = SimDataGroup.getForTuning(tuningKey.type);
   if (!group) {
     const typeName = TuningResourceType[tuningKey.type];
-    throw new Error(`SimDataGroup.${typeName} is not defined`);
+    throw `SimDataGroup.${typeName} is not defined`;
   }
 
   return {
@@ -105,9 +105,7 @@ console.log("Tuning built successfully");
 // parsing simdata files
 getSourceFilePaths(CONFIG.sourcePatterns.simdata).forEach((filepath) => {
   if (TUNING_PATHS.has(filepath))
-    throw new Error(
-      `'${filepath}' is listed as both tuning and SimData (sourcePatterns is likely configured incorrectly)`
-    );
+    throw `'${filepath}' is listed as both tuning and SimData (sourcePatterns is likely configured incorrectly)`;
 
   try {
     const buffer = fs.readFileSync(filepath);
