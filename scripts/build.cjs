@@ -51,9 +51,15 @@ const TUNING_NAMES_TO_KEYS = new Map();
 
 function getSourceFilePaths(patterns) {
   return patterns
-    .map((pattern) =>
-      glob.sync(path.resolve(CONFIG_DIR, CONFIG.sourceFolder, pattern))
-    )
+    .map((pattern) => {
+      // glob requires "/" on both mac and windows, and path.resolve() returns
+      // a path with "\" on windows -- this is dumb but it's Just How It Works™
+      const fullPattern = path
+        .resolve(CONFIG_DIR, CONFIG.sourceFolder, pattern)
+        .replace(/\\/g, "/");
+
+      return glob.sync(fullPattern);
+    })
     .flat(1);
 }
 
