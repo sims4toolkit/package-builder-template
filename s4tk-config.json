@@ -2,20 +2,23 @@
   "buildFolders": [
     "./out"
   ],
-  "buildName": "MyProject",
   "cache": true,
   "cachePath": "./s4tk-cache.json",
   "cancelOnError": true,
   "sourceFolder": "./src",
   "sourcePatterns": {
     "packages": [
-      "./packages/**/*.package"
+      "./**/*.package"
     ],
     "simdata": [
-      "./xml/**/*.SimData.xml"
+      "./**/*.SimData.xml"
     ],
     "tuning": [
-      "./xml/**/!(*.SimData).xml"
+      "./**/!(*.SimData).xml"
     ]
+  },
+  "sourceSubfolders": {
+    "xml": "MyModName",
+    "packages": "MyModName_AddOn"
   }
 }

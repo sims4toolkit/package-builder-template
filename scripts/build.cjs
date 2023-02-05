@@ -49,20 +49,6 @@ if (CONFIG.cache) {
 const TUNING_INSTANCES = new Set();
 const TUNING_NAMES_TO_KEYS = new Map();
 
-function getSourceFilePaths(patterns) {
-  return patterns
-    .map((pattern) => {
-      // glob requires "/" on both mac and windows, and path.resolve() returns
-      // a path with "\" on windows -- this is dumb but it's Just How It Works™
-      const fullPattern = path
-        .resolve(CONFIG_DIR, CONFIG.sourceFolder, pattern)
-        .replace(/\\/g, "/");
-
-      return glob.sync(fullPattern);
-    })
-    .flat(1);
-}
-
 function parseTuningKey(filepath, tuning) {
   if (CONFIG.cache && PATHS_TO_KEYS.has(filepath))
     return PATHS_TO_KEYS.get(filepath);
@@ -122,79 +108,98 @@ function parseSimDataKey(filepath, simdata) {
 
 //#region Building the Package
 
-const buildPkg = new Package();
+function buildSubfolder(subfolder, packageName) {
+  function getSourceFilePaths(patterns) {
+    return patterns
+      .map((pattern) => {
+        // glob requires "/" on both mac and windows, and path.resolve() returns
+        // a path with "\" on windows -- this is dumb but it's Just How It Works™
+        const fullPattern = path
+          .resolve(CONFIG_DIR, CONFIG.sourceFolder, subfolder, pattern)
+          .replace(/\\/g, "/");
 
-// parsing tuning files
-getSourceFilePaths(CONFIG.sourcePatterns.tuning).forEach((filepath) => {
-  try {
-    const buffer = fs.readFileSync(filepath);
-    const tuning = XmlResource.from(buffer);
-    const key = parseTuningKey(filepath, tuning);
-    PATHS_TO_KEYS.set(filepath, key);
-    SEEN_PATHS.add(filepath);
-    buildPkg.add(key, tuning);
-  } catch (err) {
-    console.error(`Error ocurred while building ${filepath}`);
-    if (CONFIG.cancelOnError) {
-      throw err;
-    } else {
-      console.error(err);
+        return glob.sync(fullPattern);
+      })
+      .flat(1);
+  }
+
+  console.log(`Building '${packageName}' from '${subfolder}'...`);
+  const buildPkg = new Package();
+
+  // parsing tuning files
+  getSourceFilePaths(CONFIG.sourcePatterns.tuning).forEach((filepath) => {
+    try {
+      const buffer = fs.readFileSync(filepath);
+      const tuning = XmlResource.from(buffer);
+      const key = parseTuningKey(filepath, tuning);
+      PATHS_TO_KEYS.set(filepath, key);
+      SEEN_PATHS.add(filepath);
+      buildPkg.add(key, tuning);
+    } catch (err) {
+      console.error(`| Error ocurred while building ${filepath}`);
+      if (CONFIG.cancelOnError) {
+        throw err;
+      } else {
+        console.error(`| ${err}`);
+      }
     }
-  }
-});
+  });
 
-console.log("Tuning built successfully");
+  console.log("| Tuning added to package");
 
-// parsing simdata files
-getSourceFilePaths(CONFIG.sourcePatterns.simdata).forEach((filepath) => {
-  try {
-    const buffer = fs.readFileSync(filepath);
-    const simdata = SimDataResource.fromXml(buffer);
-    const key = parseSimDataKey(filepath, simdata);
-    PATHS_TO_KEYS.set(filepath, key);
-    SEEN_PATHS.add(filepath);
-    buildPkg.add(key, simdata);
-  } catch (err) {
-    console.error(`Error ocurred while building ${filepath}`);
-    if (CONFIG.cancelOnError) {
-      throw err;
-    } else {
-      console.error(err);
+  // parsing simdata files
+  getSourceFilePaths(CONFIG.sourcePatterns.simdata).forEach((filepath) => {
+    try {
+      const buffer = fs.readFileSync(filepath);
+      const simdata = SimDataResource.fromXml(buffer);
+      const key = parseSimDataKey(filepath, simdata);
+      PATHS_TO_KEYS.set(filepath, key);
+      SEEN_PATHS.add(filepath);
+      buildPkg.add(key, simdata);
+    } catch (err) {
+      console.error(`| Error ocurred while building ${filepath}`);
+      if (CONFIG.cancelOnError) {
+        throw err;
+      } else {
+        console.error(`| ${err}`);
+      }
     }
-  }
-});
+  });
 
-console.log("SimData built successfully");
+  console.log("| SimData added to package");
 
-// merging pre-built packages
-getSourceFilePaths(CONFIG.sourcePatterns.packages).forEach((filepath) => {
-  const buffer = fs.readFileSync(filepath);
-  const resources = Package.extractResources(buffer, { loadRaw: true });
-  buildPkg.addAll(resources);
-});
+  // merging pre-built packages
+  getSourceFilePaths(CONFIG.sourcePatterns.packages).forEach((filepath) => {
+    const buffer = fs.readFileSync(filepath);
+    const resources = Package.extractResources(buffer, { loadRaw: true });
+    buildPkg.addAll(resources);
+  });
 
-console.log("Packages merged successfully");
+  console.log("| Loose packages merged into package");
 
-//#endregion
+  // Writing to disc
 
-//#region Writing the Package
+  const packageFilename = `${packageName}.package`;
+  const packageBuffer = buildPkg.getBuffer();
 
-const packageName = `${CONFIG.buildName}.package`;
-const packageBuffer = buildPkg.getBuffer();
-console.log(`Package built successfully: ${packageName}`);
+  CONFIG.buildFolders.forEach((folder) => {
+    if (!path.isAbsolute(folder)) folder = path.resolve(CONFIG_DIR, folder);
 
-CONFIG.buildFolders.forEach((folder) => {
-  if (!path.isAbsolute(folder)) folder = path.resolve(CONFIG_DIR, folder);
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder);
+      console.log(`| Created folder: ${folder}`);
+    }
 
-  if (!fs.existsSync(folder)) {
-    fs.mkdirSync(folder);
-    console.log(`Created folder: ${folder}`);
-  }
+    const filepath = path.join(folder, packageFilename);
+    fs.writeFileSync(filepath, packageBuffer);
+    console.log(`| Wrote package: ${filepath}`);
+  });
+}
 
-  const filepath = path.join(folder, packageName);
-  fs.writeFileSync(filepath, packageBuffer);
-  console.log(`Wrote package: ${filepath}`);
-});
+for (const subfolder in CONFIG.sourceSubfolders) {
+  const packageName = CONFIG.sourceSubfolders[subfolder];
+  buildSubfolder(subfolder, packageName);
+}
 
 //#endregion
 
@@ -223,4 +228,4 @@ if (CONFIG.cache) {
 
 //#endregion
 
-console.log("Build complete");
+console.log("Build script terminated");
